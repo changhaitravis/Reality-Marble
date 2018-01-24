@@ -76,10 +76,10 @@ function soratamafyImage (file) {
         
         //if any is missing then create all
         return new Promise((resolve, reject) => {
-            exec(`convert -size 200x200 xc: -channel R -fx 'yy=(j+.5)/h-.5; (i/w-.5)/acos(3.14*yy^2)+.5' -separate  +channel  ${sphere_lutxFilename} &&
-                convert ${sphere_lutxFilename} -rotate 90 ${sphere_lutyFilename} && 
-                convert -size 200x200 xc:black -fill white -draw 'circle 99,99 99,0' ${sphere_maskFilename} &&
-                convert ${sphere_maskFilename} \\( +clone -blur 0x20 -shade 110x21.7 -contrast-stretch 0% +sigmoidal-contrast 6x50% -fill grey50 -colorize 10%  \\) -composite ${sphere_overlayFilename}`, 
+            exec(`convert -size 400x400 xc: -channel R -fx 'yy=(j+.5)/h-.5; (i/w-.5)/acos(3.14*yy^2)+.5' -separate +channel "${sphere_lutxFilename}" &&
+                convert "${sphere_lutxFilename}" -rotate 90 "${sphere_lutyFilename}" && 
+                convert -size 400x400 xc:black -fill white -draw 'circle 198,198 198,0' "${sphere_maskFilename}" &&
+                convert "${sphere_maskFilename}" \\( +clone -blur 0x20 -shade 110x21.7 -contrast-stretch 0% +sigmoidal-contrast 6x50% -fill grey50 -colorize 10%  \\) -composite "${sphere_overlayFilename}"`, 
                  {stdio: 'ignore'}, (err, stdout) => {
                     if (err) {
                         console.error('Failed to create sphere maps.', err);
@@ -93,12 +93,12 @@ function soratamafyImage (file) {
     .then(() => {
       // Create marble
       return new Promise((resolve, reject) => {
-        exec(`convert ${tempLocalFilename} -resize 200x200^ \\
-        -gravity Center -crop 200x200+0+0 +repage \\
-        ${sphere_lutxFilename} ${sphere_lutyFilename} -fx 'p{ u[1]*w, u[2]*h }' \\
-          ${sphere_overlayFilename}   -compose HardLight  -composite \\
-          ${sphere_maskFilename} -alpha off -compose CopyOpacity -composite \\
-          ${marbleFileName}`, { stdio: 'ignore' }, (err, stdout) => {
+        exec(`convert "${tempLocalFilename}" -resize 400x400^ \\
+        -gravity Center -crop 400x400+0+0 +repage \\
+        "${sphere_lutxFilename}" "${sphere_lutyFilename}" -fx 'p{ u[1]*w, u[2]*h }' \\
+          "${sphere_overlayFilename}"  -compose HardLight  -composite \\
+          "${sphere_maskFilename}" -alpha off -compose CopyOpacity -composite \\
+          "${marbleFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
           if (err) {
             console.error('Failed to create reality marble.', err);
             reject(err);
@@ -111,7 +111,7 @@ function soratamafyImage (file) {
     .then(() => {
       // Blur and flip the image using ImageMagick.
       return new Promise((resolve, reject) => {
-        exec(`convert ${tempLocalFilename} -resize 1280x960^ -gravity Center -crop 1024x768+0+0 +repage -flip -flop -channel RGBA -blur 0x24 ${blurredBgFileName}`, { stdio: 'ignore' }, (err, stdout) => {
+        exec(`convert "${tempLocalFilename}" -resize 3200x2400^ -gravity Center -crop 2048x1536+0+0 +repage -flip -flop -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
           if (err) {
             console.error('Failed to blur image.', err);
             reject(err);
@@ -124,7 +124,7 @@ function soratamafyImage (file) {
     .then(() => {
       // Overlay the bg and the marble using ImageMagick.
       return new Promise((resolve, reject) => {
-        exec(`convert ${blurredBgFileName} ${marbleFileName} -gravity center -composite -format jpg -quality 90 ${tempLocalFilename} `, { stdio: 'ignore' }, (err, stdout) => {
+        exec(`convert "${blurredBgFileName}" "${marbleFileName}" -gravity center -composite -format jpg -quality 90 "${tempLocalFilename}" `, { stdio: 'ignore' }, (err, stdout) => {
           if (err) {
             console.error('Failed to overlay image.', err);
             reject(err);
