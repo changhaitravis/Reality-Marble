@@ -1,12 +1,12 @@
 {
-  "name": "nodejs-docs-samples-functions-imagemagick",
+  "name": "reality-marble",
   "version": "0.0.1",
   "private": true,
   "license": "Apache-2.0",
-  "author": "Google Inc.",
+  "author": "Travis P. Juntara",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GoogleCloudPlatform/nodejs-docs-samples.git"
+    "url": "https://github.com/changhaitravis/Reality-Marble.git"
   },
   "engines": {
     "node": ">=4.3.2"
@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@google-cloud/storage": "1.4.0",
-    "@google-cloud/vision": "0.12.0"
+    "@google-cloud/vision": "0.12.0",
+    "busboy": "^0.2.14",
+    "formidable": "^1.1.1"
   },
   "devDependencies": {
     "@google-cloud/nodejs-repo-tools": "2.1.0",

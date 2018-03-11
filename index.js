@@ -15,82 +15,153 @@
 
 'use strict';
 
+//GLOBALS
+const IS_GOOGLE_FUNCTION = true;
+
 // [START functions_imagemagick_setup]
-const exec = require('child_process').exec;
-const fs = require('fs');
-const path = require('path');
-const storage = require('@google-cloud/storage')();
+const exec = require('child_process').exec,
+fs = require('fs'),
+path = require('path'),
+os = require('os'),
+util = require('util'),
+Busboy = require('busboy'),
+formidable = require('formidable');
+
 // [END functions_imagemagick_setup]
 
 // [START functions_imagemagick_analyze]
-// Blurs uploaded images that are flagged as Adult or Violence.
-exports.soratamafyImages = (event) => {
-  const object = event.data;
 
-  // Exit if this is a deletion or a deploy event.
-  if (object.resourceState === 'not_exists') {
-    console.log('This is a deletion event.');
-    return;
-  } else if (!object.name) {
-    console.log('This is a deploy event.');
-    return;
-  }
+/*
+ * Create multipart parser to parse given request
+ */
 
-  const file = storage.bucket(object.bucket).file(object.name);
-  
-  if (file.name.indexOf('soratama/') !== -1){
-      console.log("this has already been processed");
-      return;
-  }
+// Soratamafies images
+exports.soratamafy = (req, res) => {
+    if (req.method.toLowerCase() === 'post'){
+        if(IS_GOOGLE_FUNCTION){
+                const busboy = new Busboy({ headers: req.headers });
+                // This object will accumulate all the uploaded files, keyed by their name
+                var upload = null;
 
-  console.log(`Blurring and flipping ${file.name}.`);
+                // This callback will be invoked for each file uploaded
+                busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+                    console.log(`File [${fieldname}] filename: ${filename}, encoding: ${encoding}, mimetype: ${mimetype}`);
+                    // Note that os.tmpdir() is an in-memory file system, so should only 
+                    // be used for files small enough to fit in memory.
+                    const filepath = path.join(os.tmpdir(), filename);
+                    upload = { path: filepath, name: filename }
+                    console.log(util.inspect(upload))
+                    console.log(`Saving '${fieldname}' to ${filepath}`);
+                    file.pipe(fs.createWriteStream(filepath));
+                });
 
-  return soratamafyImage(file);
+                // This callback will be invoked after all uploaded files are saved.
+                busboy.on('finish', () => {
+                    console.log("busboy finished");
+                    if(upload){
+                        soratamafyImage(upload, res, request.query.base64);
+                    }else{
+                        res.end();
+                    }
+        //             for (const name in uploads) {
+        //                 const upload = uploads[name];
+        //                 
+        //                 //const file = upload.file;
+        //                 //res.write(`${file}\n`);
+        //                 //fs.unlinkSync(file);
+        //             }
+                    
+                });
+
+                // The raw bytes of the upload will be in req.rawBody.  Send it to busboy, and get
+                // a callback when it's finished.
+                if(req.rawBody){
+                    busboy.end(req.rawBody);
+                }else{
+                    busboy.end();
+                }
+        }else{
+            form.parse(req, function(err, fields, files) {
+                //res.writeHead(200, {'content-type': 'image/png'});
+                //res.write('received upload:\n\n');
+                
+                    console.log(util.inspect({errors: err, fields: fields, files: files}));
+                    if(err){
+                        res.end("encountered an error: " + err);
+                        return;
+                    }
+                    if(!files || !files.upload){
+                        res.end("no files uploaded...");
+                        return;
+                    }
+                
+                var file = files.upload;
+                
+                soratamafyImage(
+                    file, res, request.query.base64
+                );
+                //res.end(util.inspect({errors: err, fields: fields, files: files}));
+            });
+            
+            //form.on('progress', function(bytesReceived, bytesExpected) {
+                //For use with upload progress bar.
+            //});
+        }
+    }
+  return;
 };
 // [END functions_imagemagick_analyze]
 
 // [START functions_imagemagick_blur]
 // Blurs the given file using ImageMagick.
-function soratamafyImage (file) {
-  const tempLocalFilename = `/tmp/${path.parse(file.name).base}`;
-  const blurredBgFileName = `/tmp/blurred_${path.parse(file.name).base}`;
-  const marbleFileName = `/tmp/sphered_${path.parse(file.name).base}.png`;//needs to be png for transparency
-  const sphere_maskFilename = `/tmp/sphere_mask.png`;
-  const sphere_overlayFilename = `/tmp/sphere_overlay.png`;
-  const sphere_lutxFilename = `/tmp/sphere_lutx.png`;
-  const sphere_lutyFilename = `/tmp/sphere_luty.png`;
+function soratamafyImage (file, res, isBase64) {
+    console.log(file);
+    if(!file){
+        res.end("no files uploaded...");
+        return;
+    }
+  const tempLocalFilename = `${file.path}`;
+  const blurredBgFileName = `${os.tmpdir()}/blurred_${file.name}`;
+  const marbleFileName = `${os.tmpdir()}/sphered_${file.name}.png`;//needs to be png for transparency
+  const sphere_maskFilename = `${os.tmpdir()}/sphere_mask.png`;
+  const sphere_overlayFilename = `${os.tmpdir()}/sphere_overlay.png`;
+  const sphere_lutxFilename = `${os.tmpdir()}/sphere_lutx.png`;
+  const sphere_lutyFilename = `${os.tmpdir()}/sphere_luty.png`;
   
   // Download file from bucket.
-  return file.download({ destination: tempLocalFilename })
-    .catch((err) => {
-      console.error('Failed to download file.', err);
-      return Promise.reject(err);
-    })
-    .then(() => {
+//   return file.download({ destination: tempLocalFilename })
+//     .catch((err) => {
+//       console.error('Failed to download file.', err);
+//       return Promise.reject(err);
+//     })
+//     .then(() => {
         console.log(`Image ${file.name} has been downloaded to ${tempLocalFilename}.`);
+        
+        var makeSphereMaps;
         
         //check if sphere maps not_exists
         if(fs.existsSync(sphere_maskFilename) && fs.existsSync(sphere_overlayFilename) && fs.existsSync(sphere_lutxFilename) && fs.existsSync(sphere_lutyFilename)){
-            return Promise.resolve("sphere maps already exist");
+            makeSphereMaps = Promise.resolve("sphere maps already exist");
+        }else{
+            //if any is missing then create all
+            makeSphereMaps = new Promise((resolve, reject) => {
+                exec(`convert -size 400x400 xc: -channel R -fx 'yy=(j+.5)/h-.5; (i/w-.5)/acos(3.14*yy^2)+.5' -separate +channel "${sphere_lutxFilename}" &&
+                    convert "${sphere_lutxFilename}" -rotate 90 "${sphere_lutyFilename}" && 
+                    convert -size 400x400 xc:black -fill white -draw 'circle 198,198 198,0' "${sphere_maskFilename}" &&
+                    convert "${sphere_maskFilename}" \\( +clone -blur 0x20 -shade 110x21.7 -contrast-stretch 0% +sigmoidal-contrast 6x50% -fill grey50 -colorize 10%  \\) -composite "${sphere_overlayFilename}"`, 
+                    {stdio: 'ignore'}, (err, stdout) => {
+                        if (err) {
+                            console.error('Failed to create sphere maps.', err);
+                            reject(err);
+                        } else {
+                            console.log("Successfully created sphere maps");
+                            resolve(stdout);
+                        }
+                });
+            })
         }
-        
-        //if any is missing then create all
-        return new Promise((resolve, reject) => {
-            exec(`convert -size 400x400 xc: -channel R -fx 'yy=(j+.5)/h-.5; (i/w-.5)/acos(3.14*yy^2)+.5' -separate +channel "${sphere_lutxFilename}" &&
-                convert "${sphere_lutxFilename}" -rotate 90 "${sphere_lutyFilename}" && 
-                convert -size 400x400 xc:black -fill white -draw 'circle 198,198 198,0' "${sphere_maskFilename}" &&
-                convert "${sphere_maskFilename}" \\( +clone -blur 0x20 -shade 110x21.7 -contrast-stretch 0% +sigmoidal-contrast 6x50% -fill grey50 -colorize 10%  \\) -composite "${sphere_overlayFilename}"`, 
-                 {stdio: 'ignore'}, (err, stdout) => {
-                    if (err) {
-                        console.error('Failed to create sphere maps.', err);
-                        reject(err);
-                    } else {
-                        resolve(stdout);
-                    }
-            });
-        });
-    })
-    .then(() => {
+//     })
+    makeSphereMaps.then(() => {
       // Create marble
       return new Promise((resolve, reject) => {
         exec(`convert "${tempLocalFilename}" -resize 400x400^ \\
@@ -103,6 +174,7 @@ function soratamafyImage (file) {
             console.error('Failed to create reality marble.', err);
             reject(err);
           } else {
+            console.log("Successfully created reality marble");
             resolve(stdout);
           }
         });
@@ -111,11 +183,12 @@ function soratamafyImage (file) {
     .then(() => {
       // Blur and flip the image using ImageMagick.
       return new Promise((resolve, reject) => {
-        exec(`convert "${tempLocalFilename}" -resize 3200x2400^ -gravity Center -crop 2048x1536+0+0 +repage -flip -flop -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
+        exec(`convert "${tempLocalFilename}" -resize 2048x1536^ -gravity Center -crop 1600x1200+0+0 +repage -flip -flop -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
           if (err) {
             console.error('Failed to blur image.', err);
             reject(err);
           } else {
+            console.log("Successfully blurred image");
             resolve(stdout);
           }
         });
@@ -129,6 +202,7 @@ function soratamafyImage (file) {
             console.error('Failed to overlay image.', err);
             reject(err);
           } else {
+            console.log("Successfully overlaid image");
             resolve(stdout);
           }
         });
@@ -138,11 +212,36 @@ function soratamafyImage (file) {
       console.log(`Image ${file.name} has been soratamafied.`);
 
       // Upload the Blurred image back into the bucket.
-      return file.bucket.upload(tempLocalFilename, { destination: "soratama/" + file.name })
-        .catch((err) => {
-          console.error('Failed to upload blurred image.', err);
-          return Promise.reject(err);
+//       return file.bucket.upload(tempLocalFilename, { destination: "soratama/" + file.name })
+//         .catch((err) => {
+//           console.error('Failed to upload blurred image.', err);
+//           return Promise.reject(err);
+//         });
+    res.writeHead(200, {'Content-Type': 'image/jpg' });
+    if(isBase64){
+        res.setEncoding('base64');
+        body = "data:" + res.headers["content-type"] + ";base64,";
+        return new Promise((resolve, reject) => {
+            res.on('data', (data) => { body += data});
+            res.on('end', () => {
+                console.log(body);
+                return res.json({result: body, status: 'success'});
+                resolve("success, probably");
+            });
         });
+        
+    }else{     
+        return new Promise((resolve, reject) => {
+            var rs = fs.createReadStream(tempLocalFilename).pipe(res);
+            rs.on('finish', () => {
+              resolve("success!");
+            })
+            rs.on('error', () => {
+              reject("welp.");
+            })
+        });
+    }
+    //Promise.resolve();
     })
     .then(() => {
       console.log(`Blurred image has been uploaded to ${file.name}.`);

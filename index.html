@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Preview images</title>
+    <style>
+        #gallery .thumbnail{
+            width:150px;
+            height: 150px;
+            float:left;
+            margin:2px;
+        }
+        #gallery .thumbnail img{
+            width:150px;
+            height: 150px;
+        }
+
+    </style>
+</head>
+<body>
+<h2>Reality Marble</h2>
+<form action="https://us-central1-dizzy-165804.cloudfunctions.net/soratamafy" enctype="multipart/form-data" method="post" id="soratama">
+<input type="file" name="upload" accept="image/*" />
+<button type="submit" form="soratama">Upload</button>
+</form>
+
+<div id="gallery"></div>
+<script src="gallery.js"></script>
+</body>
+</html>
