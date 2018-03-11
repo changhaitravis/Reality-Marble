@@ -16,7 +16,7 @@
 'use strict';
 
 //GLOBALS
-const IS_GOOGLE_FUNCTION = false;
+const IS_GOOGLE_FUNCTION = true;
 //https://stackoverflow.com/questions/47242340/how-to-perform-an-http-file-upload-using-express-on-cloud-functions-for-firebase/47603055#47603055
 
 // [START functions_imagemagick_setup]

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Preview images</title>
+    <style>
+        #gallery .thumbnail{
+            width:150px;
+            height: 150px;
+            float:left;
+            margin:2px;
+        }
+        #gallery .thumbnail img{
+            width:150px;
+            height: 150px;
+        }
+        @keyframes donut-spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+        }
+        .donut {
+            display: inline-block;
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #7983ff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: donut-spin 1.2s linear infinite;
+        }
+    </style>
+    <script
+        src="https://code.jquery.com/jquery-3.3.1.js"
+        integrity="sha256-2Kok7MbOyxpgUVvAk/HJ2jigOSYS2auK4Pfzbm7uH60="
+        crossorigin="anonymous"></script>
+		
+</head>
+<body>
+<h2>Reality Marble</h2>
+<form action="http://localhost:8010/dizzy-165804/us-central1/soratamafy?base64" enctype="multipart/form-data" method="post" id="soratama">
+<!--<form action="http://localhost:3000/soratamafy" enctype="multipart/form-data" method="post" id="soratama">-->
+<input type="file" name="upload" accept="image/*" />
+<button type="submit" form="soratama">Upload</button>
+</form>
+
+<div id="gallery"></div><br />
+<div id="ajax"></div>
+<script src="view/gallery.js"></script>
+<script src="view/ajax.js"></script>
+</body>
+</html>

@@ -12,7 +12,7 @@ $(function(){
         $ajax_div.append(loading);
         $.ajax({
             type: "POST",
-            url: "http://localhost:8010/dizzy-165804/us-central1/soratamafy?base64",
+            url: "https://us-central1-dizzy-165804.cloudfunctions.net/soratamafy?base64",
             data: formData,
             processData: false,
             contentType: false,
@@ -21,7 +21,6 @@ $(function(){
                 //process data
                 data = $(data).attr('height','600').attr('width', '800').attr('title', 'reality-marble');
                 $ajax_div.append(data);
-                
             },
             error: function(data) {
             //process error msg
