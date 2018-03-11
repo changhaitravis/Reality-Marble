@@ -59,7 +59,7 @@ exports.soratamafy = (req, res) => {
                 busboy.on('finish', () => {
                     console.log("busboy finished");
                     if(upload){
-                        soratamafyImage(upload, res, request.query.base64);
+                        soratamafyImage(upload, res, req.query.base64 !== undefined);
                     }else{
                         res.end();
                     }
@@ -81,6 +81,7 @@ exports.soratamafy = (req, res) => {
                     busboy.end();
                 }
         }else{
+            var form = new formidable.IncomingForm();
             form.parse(req, function(err, fields, files) {
                 //res.writeHead(200, {'content-type': 'image/png'});
                 //res.write('received upload:\n\n');
@@ -98,7 +99,7 @@ exports.soratamafy = (req, res) => {
                 var file = files.upload;
                 
                 soratamafyImage(
-                    file, res, request.query.base64
+                    file, res, req.query.base64 !== undefined
                 );
                 //res.end(util.inspect({errors: err, fields: fields, files: files}));
             });
@@ -210,29 +211,33 @@ function soratamafyImage (file, res, isBase64) {
     })
     .then(() => {
       console.log(`Image ${file.name} has been soratamafied.`);
-
-      // Upload the Blurred image back into the bucket.
-//       return file.bucket.upload(tempLocalFilename, { destination: "soratama/" + file.name })
-//         .catch((err) => {
-//           console.error('Failed to upload blurred image.', err);
-//           return Promise.reject(err);
-//         });
-    res.writeHead(200, {'Content-Type': 'image/jpg' });
     if(isBase64){
-        res.setEncoding('base64');
-        body = "data:" + res.headers["content-type"] + ";base64,";
+        //res.setEncoding('base64');
         return new Promise((resolve, reject) => {
-            res.on('data', (data) => { body += data});
-            res.on('end', () => {
-                console.log(body);
-                return res.json({result: body, status: 'success'});
-                resolve("success, probably");
-            });
+            
+            fs.readFile(tempLocalFilename, (err, data) =>
+                {
+                    if (err) {
+                        reject("problems reading file for converting to base64");
+                    }
+                    res.end("data:image/jpg;base64," + Buffer(data).toString('base64'));
+                    resolve("successfully returned base64 image");
+//                     res.on('end', () => {
+//                         console.log(body);
+//                         return res.json({result: body, status: 'success'});
+//                         resolve("success, probably");
+//                     });
+                }
+            );
+            
         });
         
-    }else{     
+    }else{    
+        res.writeHead(200, {'Content-Type': 'image/jpg' });
         return new Promise((resolve, reject) => {
-            var rs = fs.createReadStream(tempLocalFilename).pipe(res);
+            var rs = fs.createReadStream(tempLocalFilename);
+            //if(isBase64){ rs.pipe(new Base64Encode()) }
+            rs.pipe(res);
             rs.on('finish', () => {
               resolve("success!");
             })
@@ -240,7 +245,7 @@ function soratamafyImage (file, res, isBase64) {
               reject("welp.");
             })
         });
-    }
+     }
     //Promise.resolve();
     })
     .then(() => {
