@@ -16,7 +16,8 @@
 'use strict';
 
 //GLOBALS
-const IS_GOOGLE_FUNCTION = true;
+const IS_GOOGLE_FUNCTION = false;
+//https://stackoverflow.com/questions/47242340/how-to-perform-an-http-file-upload-using-express-on-cloud-functions-for-firebase/47603055#47603055
 
 // [START functions_imagemagick_setup]
 const exec = require('child_process').exec,
@@ -37,7 +38,17 @@ formidable = require('formidable');
 
 // Soratamafies images
 exports.soratamafy = (req, res) => {
+    //res.header('Content-Type','application/json');
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+
+    //respond to CORS preflight requests
+    if (req.method == 'OPTIONS') {
+        res.status(204).send('');
+    }
+    
     if (req.method.toLowerCase() === 'post'){
+        
         if(IS_GOOGLE_FUNCTION){
                 const busboy = new Busboy({ headers: req.headers });
                 // This object will accumulate all the uploaded files, keyed by their name
@@ -220,7 +231,8 @@ function soratamafyImage (file, res, isBase64) {
                     if (err) {
                         reject("problems reading file for converting to base64");
                     }
-                    res.end("data:image/jpg;base64," + Buffer(data).toString('base64'));
+                    var b64uri = "data:image/jpeg;base64," + Buffer(data).toString('base64');
+                    res.end('<img src="' + b64uri + '" />');
                     resolve("successfully returned base64 image");
 //                     res.on('end', () => {
 //                         console.log(body);
@@ -233,7 +245,7 @@ function soratamafyImage (file, res, isBase64) {
         });
         
     }else{    
-        res.writeHead(200, {'Content-Type': 'image/jpg' });
+        res.writeHead(200, {'Content-Type': 'image/jpeg' });
         return new Promise((resolve, reject) => {
             var rs = fs.createReadStream(tempLocalFilename);
             //if(isBase64){ rs.pipe(new Base64Encode()) }
