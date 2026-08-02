@@ -177,7 +177,7 @@ function soratamafyImage (file, res, isBase64) {
       // Create marble
       return new Promise((resolve, reject) => {
         exec(`convert "${tempLocalFilename}" -resize 400x400^ \\
-        -gravity Center -crop 400x400+0+0 +repage \\
+        -gravity Center -crop 400x400+0+0 +repage -flip -flop \\
         "${sphere_lutxFilename}" "${sphere_lutyFilename}" -fx 'p{ u[1]*w, u[2]*h }' \\
           "${sphere_overlayFilename}"  -compose HardLight  -composite \\
           "${sphere_maskFilename}" -alpha off -compose CopyOpacity -composite \\
@@ -195,7 +195,7 @@ function soratamafyImage (file, res, isBase64) {
     .then(() => {
       // Blur and flip the image using ImageMagick.
       return new Promise((resolve, reject) => {
-        exec(`convert "${tempLocalFilename}" -resize 2048x1536^ -gravity Center -crop 1600x1200+0+0 +repage -flip -flop -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
+        exec(`convert "${tempLocalFilename}" -resize 2048x1536^ -gravity Center -crop 1600x1200+0+0 +repage -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
           if (err) {
             console.error('Failed to blur image.', err);
             reject(err);
