@@ -1,35 +1,25 @@
 {
   "name": "reality-marble",
-  "version": "0.0.1",
-  "private": true,
-  "license": "Apache-2.0",
+  "version": "2.0.0",
+  "description": "Transform images into Soratama (glass marble) style photos using ImageMagick and Google Cloud Functions (2nd Gen) / Cloud Run.",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "functions-framework --target=soratamafy --port=8080",
+    "server": "node server.js",
+    "dev": "functions-framework --target=soratamafy --port=8080"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.2",
+    "busboy": "^1.6.0",
+    "express": "^4.19.2"
+  },
   "author": "Travis P. Juntara",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/changhaitravis/Reality-Marble.git"
-  },
-  "engines": {
-    "node": ">=4.3.2"
-  },
-  "scripts": {
-    "lint": "samples lint",
-    "pretest": "npm run lint",
-    "test": "ava -T 20s --verbose test/*.test.js"
-  },
-  "dependencies": {
-    "@google-cloud/storage": "1.4.0",
-    "@google-cloud/vision": "0.12.0",
-    "busboy": "^0.2.14",
-    "formidable": "^1.1.1"
-  },
-  "devDependencies": {
-    "@google-cloud/nodejs-repo-tools": "2.1.0",
-    "ava": "0.23.0",
-    "proxyquire": "1.8.0",
-    "sinon": "4.0.2"
-  },
-  "cloud-repo-tools": {
-    "requiresKeyFile": true,
-    "requiresProjectId": true
   }
 }

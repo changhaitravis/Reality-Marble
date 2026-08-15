@@ -1,33 +1,33 @@
- 
-//For use with the base64 version.
+// For use with the base64 version.
 
-$(function(){
-    
+$(function() {
     var $ajax_div = $("div#ajax");
-    
-    $("form#soratama").submit(function(e){
+
+    $("form#soratama").submit(function(e) {
         e.preventDefault();
-        var formData = new FormData($(this)[0]);
+        var form = $(this);
+        var targetUrl = form.attr("action") || "/soratamafy?base64";
+        var formData = new FormData(form[0]);
         var loading = $("<div>").addClass("donut");
         $ajax_div.append(loading);
+
         $.ajax({
             type: "POST",
-            url: "https://us-central1-dizzy-165804.cloudfunctions.net/soratamafy?base64",
+            url: targetUrl,
             data: formData,
             processData: false,
             contentType: false,
             dataType: "html",
             success: function(data) {
-                //process data
-                data = $(data).attr('height','600').attr('width', '800').attr('title', 'reality-marble');
-                $ajax_div.append(data);
+                var $img = $(data).attr('height', '600').attr('width', '800').attr('title', 'reality-marble');
+                $ajax_div.append($img);
             },
-            error: function(data) {
-            //process error msg
-                $ajax_div.append($("<span>").text(data.message));
+            error: function(xhr, status, error) {
+                var msg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.responseText || error || "Upload failed";
+                $ajax_div.append($("<span>").css("color", "red").text("Error: " + msg));
             }
-        }).done(function(){
-                loading.remove();
-            });
+        }).done(function() {
+            loading.remove();
+        });
     });
 });

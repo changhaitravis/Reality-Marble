@@ -1,19 +1,25 @@
-var express = require('express');
-var app = express();
-var soratamafy = require('./index.js').soratamafy;
+'use strict';
 
-app.post('/soratamafy', soratamafy);
+const express = require('express');
+const path = require('path');
+const { soratamafy } = require('./index.js');
 
-// app.post('/test', function(req,res){
-//     res.send('Hello World!');
-//     return;
-// });
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-app.get('/test', function(req,res){
-    res.send('Hello World!');
-    return;
+// Static frontend files
+app.use('/view', express.static(path.join(__dirname, 'view')));
+app.use(express.static(path.join(__dirname, 'view')));
+app.use(express.static(__dirname));
+
+// Soratama transformation endpoint
+app.all('/soratamafy', soratamafy);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'reality-marble' });
 });
 
-app.listen(3000, function() {
-    console.log('Listening...');
+app.listen(PORT, () => {
+  console.log(`Reality Marble server listening on http://localhost:${PORT}...`);
 });
