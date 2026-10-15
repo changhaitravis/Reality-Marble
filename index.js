@@ -1,5 +1,5 @@
 /**
- * Copyright 2017, Google, Inc.
+ * Copyright 2026, Travis P. Juntara.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -15,286 +15,221 @@
 
 'use strict';
 
-//GLOBALS
-const IS_GOOGLE_FUNCTION = true;
-//https://stackoverflow.com/questions/47242340/how-to-perform-an-http-file-upload-using-express-on-cloud-functions-for-firebase/47603055#47603055
+const functions = require('@google-cloud/functions-framework');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const Busboy = require('busboy');
 
-// [START functions_imagemagick_setup]
-const exec = require('child_process').exec,
-fs = require('fs'),
-path = require('path'),
-os = require('os'),
-util = require('util'),
-Busboy = require('busboy'),
-formidable = require('formidable');
+const execAsync = promisify(exec);
 
-// [END functions_imagemagick_setup]
+// Dimensions & constants
+const SPHERE_SIZE = 600; // Resolution of the marble sphere
+const BG_WIDTH = 2048;   // Background canvas width
+const BG_HEIGHT = 1536;  // Background canvas height
 
-// [START functions_imagemagick_analyze]
+// Persistent sphere maps in temp directory
+const sphere_lutxFilename = path.join(os.tmpdir(), 'sphere_lutx_v2.png');
+const sphere_lutyFilename = path.join(os.tmpdir(), 'sphere_luty_v2.png');
+const sphere_maskFilename = path.join(os.tmpdir(), 'sphere_mask_v2.png');
+const sphere_overlayFilename = path.join(os.tmpdir(), 'sphere_overlay_v2.png');
 
-/*
- * Create multipart parser to parse given request
+/**
+ * Ensures that the sphere distortion LUTs, mask, and 3D glass shading overlay exist.
+ * Uses true 2D radial spherical distortion for authentic Soratama optical refraction.
  */
+async function ensureSphereMaps() {
+  if (
+    fs.existsSync(sphere_lutxFilename) &&
+    fs.existsSync(sphere_lutyFilename) &&
+    fs.existsSync(sphere_maskFilename) &&
+    fs.existsSync(sphere_overlayFilename)
+  ) {
+    return;
+  }
 
-// Soratamafies images
-exports.soratamafy = (req, res) => {
-    //res.header('Content-Type','application/json');
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
+  const radius = SPHERE_SIZE / 2 - 2;
+  const center = SPHERE_SIZE / 2;
 
-    //respond to CORS preflight requests
-    if (req.method == 'OPTIONS') {
-        res.status(204).send('');
-    }
-    
-    if (req.method.toLowerCase() === 'post'){
-        
-        if(IS_GOOGLE_FUNCTION){
-                const busboy = new Busboy({ headers: req.headers });
-                // This object will accumulate all the uploaded files, keyed by their name
-                var upload = null;
+  // 1. Generate 2D Radial Spherical Distortion LUTs (X and Y coordinate maps)
+  // Radial mapping: r_src = sin(r * pi / 2), where r = 2 * hypot(x, y) <= 1 inside sphere
+  const cmdLutX = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; r=2*hypot(xx,yy); (r>0 && r<=1) ? (xx*sin(r*pi/2)/r + 0.5) : (i/w)' -separate +channel "${sphere_lutxFilename}"`;
+  const cmdLutY = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; r=2*hypot(xx,yy); (r>0 && r<=1) ? (yy*sin(r*pi/2)/r + 0.5) : (j/h)' -separate +channel "${sphere_lutyFilename}"`;
 
-                // This callback will be invoked for each file uploaded
-                busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
-                    console.log(`File [${fieldname}] filename: ${filename}, encoding: ${encoding}, mimetype: ${mimetype}`);
-                    // Note that os.tmpdir() is an in-memory file system, so should only 
-                    // be used for files small enough to fit in memory.
-                    const filepath = path.join(os.tmpdir(), filename);
-                    upload = { path: filepath, name: filename }
-                    console.log(util.inspect(upload))
-                    console.log(`Saving '${fieldname}' to ${filepath}`);
-                    file.pipe(fs.createWriteStream(filepath));
-                });
+  // 2. Generate smooth anti-aliased circular alpha mask
+  const cmdMask = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc:black -fill white -draw "circle ${center},${center} ${center},2" -blur 0x1 "${sphere_maskFilename}"`;
 
-                // This callback will be invoked after all uploaded files are saved.
-                busboy.on('finish', () => {
-                    console.log("busboy finished");
-                    if(upload){
-                        soratamafyImage(upload, res, req.query.base64 !== undefined);
-                    }else{
-                        res.end();
-                    }
-        //             for (const name in uploads) {
-        //                 const upload = uploads[name];
-        //                 
-        //                 //const file = upload.file;
-        //                 //res.write(`${file}\n`);
-        //                 //fs.unlinkSync(file);
-        //             }
-                    
-                });
+  // 3. Generate 3D glass sphere lighting & specular highlight overlay
+  const cmdOverlay = `convert "${sphere_maskFilename}" \\( +clone -blur 0x30 -shade 120x30 -contrast-stretch 0% +sigmoidal-contrast 5x50% -fill grey50 -colorize 15% \\) -composite "${sphere_overlayFilename}"`;
 
-                // The raw bytes of the upload will be in req.rawBody.  Send it to busboy, and get
-                // a callback when it's finished.
-                if(req.rawBody){
-                    busboy.end(req.rawBody);
-                }else{
-                    busboy.end();
-                }
-        }else{
-            var form = new formidable.IncomingForm();
-            form.parse(req, function(err, fields, files) {
-                //res.writeHead(200, {'content-type': 'image/png'});
-                //res.write('received upload:\n\n');
-                
-                    console.log(util.inspect({errors: err, fields: fields, files: files}));
-                    if(err){
-                        res.end("encountered an error: " + err);
-                        return;
-                    }
-                    if(!files || !files.upload){
-                        res.end("no files uploaded...");
-                        return;
-                    }
-                
-                var file = files.upload;
-                
-                soratamafyImage(
-                    file, res, req.query.base64 !== undefined
-                );
-                //res.end(util.inspect({errors: err, fields: fields, files: files}));
-            });
-            
-            //form.on('progress', function(bytesReceived, bytesExpected) {
-                //For use with upload progress bar.
-            //});
-        }
-    }
-  return;
-};
-// [END functions_imagemagick_analyze]
-
-// [START functions_imagemagick_blur]
-// Blurs the given file using ImageMagick.
-function soratamafyImage (file, res, isBase64) {
-    console.log(file);
-    if(!file){
-        res.end("no files uploaded...");
-        return;
-    }
-  const tempLocalFilename = `${file.path}`;
-  const blurredBgFileName = `${os.tmpdir()}/blurred_${file.name}`;
-  const marbleFileName = `${os.tmpdir()}/sphered_${file.name}.png`;//needs to be png for transparency
-  const sphere_maskFilename = `${os.tmpdir()}/sphere_mask.png`;
-  const sphere_overlayFilename = `${os.tmpdir()}/sphere_overlay.png`;
-  const sphere_lutxFilename = `${os.tmpdir()}/sphere_lutx.png`;
-  const sphere_lutyFilename = `${os.tmpdir()}/sphere_luty.png`;
-  
-  // Download file from bucket.
-//   return file.download({ destination: tempLocalFilename })
-//     .catch((err) => {
-//       console.error('Failed to download file.', err);
-//       return Promise.reject(err);
-//     })
-//     .then(() => {
-        console.log(`Image ${file.name} has been downloaded to ${tempLocalFilename}.`);
-        
-        var makeSphereMaps;
-        
-        //check if sphere maps not_exists
-        if(fs.existsSync(sphere_maskFilename) && fs.existsSync(sphere_overlayFilename) && fs.existsSync(sphere_lutxFilename) && fs.existsSync(sphere_lutyFilename)){
-            makeSphereMaps = Promise.resolve("sphere maps already exist");
-        }else{
-            //if any is missing then create all
-            makeSphereMaps = new Promise((resolve, reject) => {
-                exec(`convert -size 400x400 xc: -channel R -fx 'yy=(j+.5)/h-.5; (i/w-.5)/acos(3.14*yy^2)+.5' -separate +channel "${sphere_lutxFilename}" &&
-                    convert "${sphere_lutxFilename}" -rotate 90 "${sphere_lutyFilename}" && 
-                    convert -size 400x400 xc:black -fill white -draw 'circle 198,198 198,0' "${sphere_maskFilename}" &&
-                    convert "${sphere_maskFilename}" \\( +clone -blur 0x20 -shade 110x21.7 -contrast-stretch 0% +sigmoidal-contrast 6x50% -fill grey50 -colorize 10%  \\) -composite "${sphere_overlayFilename}"`, 
-                    {stdio: 'ignore'}, (err, stdout) => {
-                        if (err) {
-                            console.error('Failed to create sphere maps.', err);
-                            reject(err);
-                        } else {
-                            console.log("Successfully created sphere maps");
-                            resolve(stdout);
-                        }
-                });
-            })
-        }
-//     })
-    makeSphereMaps.then(() => {
-      // Create marble
-      return new Promise((resolve, reject) => {
-        exec(`convert "${tempLocalFilename}" -resize 400x400^ \\
-        -gravity Center -crop 400x400+0+0 +repage \\
-        "${sphere_lutxFilename}" "${sphere_lutyFilename}" -fx 'p{ u[1]*w, u[2]*h }' \\
-          "${sphere_overlayFilename}"  -compose HardLight  -composite \\
-          "${sphere_maskFilename}" -alpha off -compose CopyOpacity -composite \\
-          "${marbleFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
-          if (err) {
-            console.error('Failed to create reality marble.', err);
-            reject(err);
-          } else {
-            console.log("Successfully created reality marble");
-            resolve(stdout);
-          }
-        });
-      });
-    })
-    .then(() => {
-      // Blur and flip the image using ImageMagick.
-      return new Promise((resolve, reject) => {
-        exec(`convert "${tempLocalFilename}" -resize 2048x1536^ -gravity Center -crop 1600x1200+0+0 +repage -flip -flop -channel RGBA -blur 0x24 "${blurredBgFileName}"`, { stdio: 'ignore' }, (err, stdout) => {
-          if (err) {
-            console.error('Failed to blur image.', err);
-            reject(err);
-          } else {
-            console.log("Successfully blurred image");
-            resolve(stdout);
-          }
-        });
-      });
-    })
-    .then(() => {
-      // Overlay the bg and the marble using ImageMagick.
-      return new Promise((resolve, reject) => {
-        exec(`convert "${blurredBgFileName}" "${marbleFileName}" -gravity center -composite -format jpg -quality 90 "${tempLocalFilename}" `, { stdio: 'ignore' }, (err, stdout) => {
-          if (err) {
-            console.error('Failed to overlay image.', err);
-            reject(err);
-          } else {
-            console.log("Successfully overlaid image");
-            resolve(stdout);
-          }
-        });
-      });
-    })
-    .then(() => {
-      console.log(`Image ${file.name} has been soratamafied.`);
-    if(isBase64){
-        //res.setEncoding('base64');
-        return new Promise((resolve, reject) => {
-            
-            fs.readFile(tempLocalFilename, (err, data) =>
-                {
-                    if (err) {
-                        reject("problems reading file for converting to base64");
-                    }
-                    var b64uri = "data:image/jpeg;base64," + Buffer(data).toString('base64');
-                    res.end('<img src="' + b64uri + '" />');
-                    resolve("successfully returned base64 image");
-//                     res.on('end', () => {
-//                         console.log(body);
-//                         return res.json({result: body, status: 'success'});
-//                         resolve("success, probably");
-//                     });
-                }
-            );
-            
-        });
-        
-    }else{    
-        res.writeHead(200, {'Content-Type': 'image/jpeg' });
-        return new Promise((resolve, reject) => {
-            var rs = fs.createReadStream(tempLocalFilename);
-            //if(isBase64){ rs.pipe(new Base64Encode()) }
-            rs.pipe(res);
-            rs.on('finish', () => {
-              resolve("success!");
-            })
-            rs.on('error', () => {
-              reject("welp.");
-            })
-        });
-     }
-    //Promise.resolve();
-    })
-    .then(() => {
-      console.log(`Blurred image has been uploaded to ${file.name}.`);
-
-      // Delete the temporary file.
-      var origDel = new Promise((resolve, reject) => {
-        fs.unlink(tempLocalFilename, (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-      
-      var bgDel = new Promise((resolve, reject) => {
-        fs.unlink(blurredBgFileName, (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-      
-      var marbleDel = new Promise((resolve, reject) => {
-        fs.unlink(marbleFileName, (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-      
-      return Promise.all([origDel, bgDel, marbleDel]);
-    });
+  await execAsync(`${cmdLutX} && ${cmdLutY} && ${cmdMask} && ${cmdOverlay}`);
 }
-// [END functions_imagemagick_blur]
+
+/**
+ * Transforms an input image file into a Soratama (crystal marble) photo using ImageMagick.
+ */
+async function processSoratamaImage(inputPath, outputPath) {
+  await ensureSphereMaps();
+
+  const reqId = crypto.randomBytes(8).toString('hex');
+  const marbleFileName = path.join(os.tmpdir(), `marble_${reqId}.png`);
+  const blurredBgFileName = path.join(os.tmpdir(), `blurred_bg_${reqId}.jpg`);
+
+  try {
+    // 1. Create the Soratama marble:
+    // - Crop center square and resize to SPHERE_SIZE
+    // - Invert image (-flip -flop) to simulate optical ball lens refraction
+    // - Apply 2D radial spherical distortion via LUTs
+    // - Composite 3D glass lighting overlay (HardLight)
+    // - Apply anti-aliased circular alpha mask
+    const createMarbleCmd = `convert "${inputPath}" -resize ${SPHERE_SIZE}x${SPHERE_SIZE}^ -gravity Center -crop ${SPHERE_SIZE}x${SPHERE_SIZE}+0+0 +repage -flip -flop "${sphere_lutxFilename}" "${sphere_lutyFilename}" -fx 'p{ u[1]*w, u[2]*h }' "${sphere_overlayFilename}" -compose HardLight -composite "${sphere_maskFilename}" -alpha off -compose CopyOpacity -composite "${marbleFileName}"`;
+    await execAsync(createMarbleCmd);
+
+    // 2. Create the bokeh blurred background:
+    // - Maintain original upright orientation (no flip/flop)
+    // - Resize and crop to wide landscape aspect
+    // - Apply rich photographic bokeh Gaussian blur
+    const createBgCmd = `convert "${inputPath}" -resize ${BG_WIDTH}x${BG_HEIGHT}^ -gravity Center -crop ${BG_WIDTH}x${BG_HEIGHT}+0+0 +repage -channel RGBA -blur 0x32 "${blurredBgFileName}"`;
+    await execAsync(createBgCmd);
+
+    // 3. Composite the marble onto the center of the blurred background
+    const compositeCmd = `convert "${blurredBgFileName}" "${marbleFileName}" -gravity Center -composite -format jpg -quality 92 "${outputPath}"`;
+    await execAsync(compositeCmd);
+  } finally {
+    fs.promises.unlink(marbleFileName).catch(() => {});
+    fs.promises.unlink(blurredBgFileName).catch(() => {});
+  }
+}
+
+/**
+ * Parses multipart form upload from request (supports Cloud Functions, Cloud Run, and Express).
+ */
+function parseMultipartUpload(req) {
+  return new Promise((resolve, reject) => {
+    let busboy;
+    try {
+      busboy = Busboy({ headers: req.headers });
+    } catch (err) {
+      return reject(new Error('Invalid multipart request headers: ' + err.message));
+    }
+
+    let uploadInfo = null;
+    const fileWritePromises = [];
+
+    busboy.on('file', (name, fileStream, info) => {
+      const filename = (typeof info === 'object' && info.filename) ? info.filename : (info || 'upload.jpg');
+      const tempFilename = `upload_${crypto.randomBytes(8).toString('hex')}_${path.basename(filename)}`;
+      const filepath = path.join(os.tmpdir(), tempFilename);
+      uploadInfo = { path: filepath, filename };
+
+      const writeStream = fs.createWriteStream(filepath);
+      fileStream.pipe(writeStream);
+
+      const filePromise = new Promise((res, rej) => {
+        writeStream.on('finish', res);
+        writeStream.on('error', rej);
+      });
+      fileWritePromises.push(filePromise);
+    });
+
+    busboy.on('finish', async () => {
+      try {
+        await Promise.all(fileWritePromises);
+        if (!uploadInfo) {
+          return reject(new Error('No file uploaded'));
+        }
+        resolve(uploadInfo);
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    busboy.on('error', (err) => {
+      reject(err);
+    });
+
+    if (req.rawBody) {
+      busboy.end(req.rawBody);
+    } else {
+      req.pipe(busboy);
+    }
+  });
+}
+
+/**
+ * Main HTTP Handler for Soratamafy (Google Cloud Functions 2nd Gen / Cloud Run / Express)
+ */
+async function soratamafy(req, res) {
+  // CORS Headers
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send('');
+  }
+
+  if (req.method === 'GET') {
+    return res.status(200).json({
+      service: 'Reality Marble (Soratamafy)',
+      description: 'Upload an image via POST multipart/form-data to transform it into a Soratama photo.',
+      version: '2.0.0'
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).send('Method Not Allowed. Use POST to upload images.');
+  }
+
+  const reqId = crypto.randomBytes(8).toString('hex');
+  const outputPath = path.join(os.tmpdir(), `output_${reqId}.jpg`);
+  let uploadedFile = null;
+
+  try {
+    uploadedFile = await parseMultipartUpload(req);
+    await processSoratamaImage(uploadedFile.path, outputPath);
+
+    const isBase64 = req.query && req.query.base64 !== undefined;
+
+    if (isBase64) {
+      const data = await fs.promises.readFile(outputPath);
+      const b64 = Buffer.from(data).toString('base64');
+      const dataUri = `data:image/jpeg;base64,${b64}`;
+
+      if (req.query.json !== undefined) {
+        return res.status(200).json({ result: dataUri, status: 'success' });
+      } else {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(`<img src="${dataUri}" alt="Soratama Photo" />`);
+      }
+    } else {
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Disposition': 'inline; filename="soratama.jpg"'
+      });
+      const readStream = fs.createReadStream(outputPath);
+      readStream.pipe(res);
+    }
+  } catch (err) {
+    console.error('Error processing soratama image:', err);
+    return res.status(500).send('Error processing image: ' + err.message);
+  } finally {
+    if (uploadedFile && uploadedFile.path) {
+      fs.promises.unlink(uploadedFile.path).catch(() => {});
+    }
+    fs.promises.unlink(outputPath).catch(() => {});
+  }
+}
+
+// Register for Google Cloud Functions (2nd Gen) Functions Framework
+try {
+  functions.http('soratamafy', soratamafy);
+} catch (e) {
+  // Functions framework not in global scope or running standalone
+}
+
+exports.soratamafy = soratamafy;
+module.exports = { soratamafy };
