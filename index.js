@@ -55,9 +55,9 @@ async function ensureSphereMaps() {
   const center = SPHERE_SIZE / 2;
 
   // 1. Generate 2D Radial Spherical Distortion LUTs (X and Y coordinate maps)
-  // Radial mapping: r_src = sin(r * pi / 2), where r = 2 * hypot(x, y) <= 1 inside sphere
-  const cmdLutX = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; r=2*hypot(xx,yy); (r>0 && r<=1) ? (xx*sin(r*pi/2)/r + 0.5) : (i/w)' -separate +channel "${sphere_lutxFilename}"`;
-  const cmdLutY = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; r=2*hypot(xx,yy); (r>0 && r<=1) ? (yy*sin(r*pi/2)/r + 0.5) : (j/h)' -separate +channel "${sphere_lutyFilename}"`;
+  // Radial mapping: rad_src = sin(rad * pi / 2), where rad = 2 * hypot(x, y) <= 1 inside sphere
+  const cmdLutX = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; rad=2*hypot(xx,yy); (rad>0 && rad<=1) ? (xx*sin(rad*pi/2)/rad + 0.5) : (i/w)' -separate +channel "${sphere_lutxFilename}"`;
+  const cmdLutY = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; rad=2*hypot(xx,yy); (rad>0 && rad<=1) ? (yy*sin(rad*pi/2)/rad + 0.5) : (j/h)' -separate +channel "${sphere_lutyFilename}"`;
 
   // 2. Generate smooth anti-aliased circular alpha mask
   const cmdMask = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc:black -fill white -draw "circle ${center},${center} ${center},2" -blur 0x1 "${sphere_maskFilename}"`;
@@ -202,14 +202,13 @@ async function soratamafy(req, res) {
       if (req.query.json !== undefined) {
         return res.status(200).json({ result: dataUri, status: 'success' });
       } else {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(`<img src="${dataUri}" alt="Soratama Photo" />`);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(200).send(`<img src="${dataUri}" alt="Soratama Photo" />`);
       }
     } else {
-      res.writeHead(200, {
-        'Content-Type': 'image/jpeg',
-        'Content-Disposition': 'inline; filename="soratama.jpg"'
-      });
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', 'inline; filename="soratama.jpg"');
+      res.status(200);
       const readStream = fs.createReadStream(outputPath);
       readStream.pipe(res);
     }
