@@ -31,11 +31,11 @@ const SPHERE_SIZE = 600; // Resolution of the marble sphere
 const BG_WIDTH = 2048;   // Background canvas width
 const BG_HEIGHT = 1536;  // Background canvas height
 
-// Persistent sphere maps in temp directory (v3 = Snell's Law physics rewrite)
-const sphere_lutxFilename = path.join(os.tmpdir(), 'sphere_lutx_v3.png');
-const sphere_lutyFilename = path.join(os.tmpdir(), 'sphere_luty_v3.png');
-const sphere_maskFilename = path.join(os.tmpdir(), 'sphere_mask_v3.png');
-const sphere_overlayFilename = path.join(os.tmpdir(), 'sphere_overlay_v3.png');
+// Persistent sphere maps in temp directory (v4 = crystal clear glass optics, no specular flare)
+const sphere_lutxFilename = path.join(os.tmpdir(), 'sphere_lutx_v4.png');
+const sphere_lutyFilename = path.join(os.tmpdir(), 'sphere_luty_v4.png');
+const sphere_maskFilename = path.join(os.tmpdir(), 'sphere_mask_v4.png');
+const sphere_overlayFilename = path.join(os.tmpdir(), 'sphere_overlay_v4.png');
 
 /**
  * Ensures that the sphere distortion LUTs, mask, and glass lighting overlay exist.
