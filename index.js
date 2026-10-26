@@ -31,15 +31,50 @@ const SPHERE_SIZE = 600; // Resolution of the marble sphere
 const BG_WIDTH = 2048;   // Background canvas width
 const BG_HEIGHT = 1536;  // Background canvas height
 
-// Persistent sphere maps in temp directory
-const sphere_lutxFilename = path.join(os.tmpdir(), 'sphere_lutx_v2.png');
-const sphere_lutyFilename = path.join(os.tmpdir(), 'sphere_luty_v2.png');
-const sphere_maskFilename = path.join(os.tmpdir(), 'sphere_mask_v2.png');
-const sphere_overlayFilename = path.join(os.tmpdir(), 'sphere_overlay_v2.png');
+// Persistent sphere maps in temp directory (v3 = Snell's Law physics rewrite)
+const sphere_lutxFilename = path.join(os.tmpdir(), 'sphere_lutx_v3.png');
+const sphere_lutyFilename = path.join(os.tmpdir(), 'sphere_luty_v3.png');
+const sphere_maskFilename = path.join(os.tmpdir(), 'sphere_mask_v3.png');
+const sphere_overlayFilename = path.join(os.tmpdir(), 'sphere_overlay_v3.png');
 
 /**
- * Ensures that the sphere distortion LUTs, mask, and 3D glass shading overlay exist.
- * Uses true 2D radial spherical distortion for authentic Soratama optical refraction.
+ * Ensures that the sphere distortion LUTs, mask, and glass lighting overlay exist.
+ *
+ * Physics model: orthographic camera at z=+∞, background at z=−∞, solid glass
+ * sphere (n=1.5) at origin.  For each output pixel at normalised disc position
+ * (nx, ny) with r = ‖(nx,ny)‖ ∈ [0,1]:
+ *
+ *   1. Surface normal  N = (nx, ny, pz),  pz = √(1−r²)
+ *   2. Snell's law at front surface (air→glass):
+ *        cos_θi = pz,  cos_θt = √(1 − r²/n²)
+ *        Refracted direction T (unit vector) via vector Snell's law
+ *   3. Ray exits sphere at t_exit = 2·cos_θt from entry point (closed form).
+ *   4. Snell's law at back surface (glass→air):
+ *        exit angle equals entry angle (sphere symmetry)
+ *        l_exit derived from vector Snell's law
+ *   5. Background source angle = l_exit_x / |l_exit_z| (transverse/longitudinal)
+ *
+ * Key intermediate quantities (used in LUT -fx expressions):
+ *   A    = pz/n − cos_θt  (= 2pz/3 − ct for n=1.5)
+ *   Bfac = n·cos_θt − pz  (= 1.5·ct − pz)
+ *   lez  = z-component of exit ray (always negative → toward background)
+ *   lex/ley = x/y transverse exit ray components
+ *
+ * Source sample = 0.5 + (lex/lez)·FOV_SCALE  for the X-LUT (similar for Y).
+ * FOV_SCALE=0.45 maps the entire source image into the inner ~80% of the marble;
+ * the outer 20% rim fades via Fresnel darkening.
+ *
+ * The input image is pre-inverted (−flip −flop) before LUT sampling because a
+ * glass sphere inverts the transmitted image.  With pre-inversion, the LUT
+ * formula samples in the same direction as the screen position (lex/lez > 0 for
+ * screen_x > 0), which correctly recovers the right content from the flipped image.
+ *
+ * Overlay (composited with HardLight over the distorted marble):
+ *   − Fresnel rim darkening: real glass becomes reflective at grazing angles;
+ *     modelled as 0.5·(1 − r^5) → drops from 0.5 (neutral) at centre to 0 at rim.
+ *   − Specular highlight: Phong model with light L ≈ (−0.28, −0.47, 0.84);
+ *     half-vector H ≈ (−0.144, −0.192, 0.971) places the hot-spot upper-left.
+ *   HardLight semantics: overlay < 0.5 → darkens base; overlay > 0.5 → brightens.
  */
 async function ensureSphereMaps() {
   if (
@@ -51,19 +86,44 @@ async function ensureSphereMaps() {
     return;
   }
 
-  const radius = SPHERE_SIZE / 2 - 2;
   const center = SPHERE_SIZE / 2;
 
-  // 1. Generate 2D Radial Spherical Distortion LUTs (X and Y coordinate maps)
-  // Radial mapping: rad_src = sin(rad * pi / 2), where rad = 2 * hypot(x, y) <= 1 inside sphere
-  const cmdLutX = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; rad=2*hypot(xx,yy); (rad>0 && rad<=1) ? (xx*sin(rad*pi/2)/rad + 0.5) : (i/w)' -separate +channel "${sphere_lutxFilename}"`;
-  const cmdLutY = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx 'xx=(i+0.5)/w-0.5; yy=(j+0.5)/h-0.5; rad=2*hypot(xx,yy); (rad>0 && rad<=1) ? (yy*sin(rad*pi/2)/rad + 0.5) : (j/h)' -separate +channel "${sphere_lutyFilename}"`;
+  // FOV scale: how much of the source image maps into the marble disc.
+  // 0.45 → full image visible within r≈0.80 of the marble; outer rim darkens.
+  const FOV_SCALE = 0.45;
 
-  // 2. Generate smooth anti-aliased circular alpha mask
-  const cmdMask = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc:black -fill white -draw "circle ${center},${center} ${center},2" -blur 0x1 "${sphere_maskFilename}"`;
+  // Shared intermediate variables used by both LUT axes.
+  const lutShared = [
+    'xx=(i+0.5)/w-0.5',
+    'yy=(j+0.5)/h-0.5',
+    'r2=4*(xx*xx+yy*yy)',       // r² in [0,1] (normalised to sphere edge)
+    'r=sqrt(r2)',
+    'pz=sqrt(max(0,1-r2))',     // z-component of sphere surface normal
+    'ct=sqrt(max(0,1-r2/2.25))',// cos(θ_refracted) via Snell: sin_t = r/1.5
+    'A=2*pz/3-ct',              // = pz/n − ct  (n=1.5 → pz/1.5 = 2pz/3)
+    'Bfac=1.5*ct-pz',           // = n·ct − pz
+    // z-component of exit ray: n·Tz − Bfac·Pbz
+    //   Tz   = −r²/n − pz·ct  →  n·Tz = −r2 − 1.5·pz·ct
+    //   Pbz  = pz − 2·ct·(r²/n + pz·ct)  =  pz − 2·ct·(r2/1.5 + pz·ct)
+    'lez=(-r2-1.5*pz*ct)-Bfac*(pz-2*ct*(r2/1.5+pz*ct))',
+  ].join('; ');
 
-  // 3. Generate 3D glass sphere lighting & specular highlight overlay
-  const cmdOverlay = `convert "${sphere_maskFilename}" \\( +clone -blur 0x30 -shade 120x30 -contrast-stretch 0% +sigmoidal-contrast 5x50% -fill grey50 -colorize 15% \\) -composite "${sphere_overlayFilename}"`;
+  // X-LUT: for each output pixel, the x source coordinate in the (pre-flipped) image.
+  //   lex = n·Tx − Bfac·Pbx = 2·xx·(1.5·A − Bfac·(1 + 2·ct·A))
+  const cmdLutX = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx '${lutShared}; lex=2*xx*(1.5*A-Bfac*(1+2*ct*A)); (r<=0)?0.5:(r>1)?(i/w):(0.5+lex/lez*${FOV_SCALE})' -separate +channel "${sphere_lutxFilename}"`;
+
+  // Y-LUT: identical formula with yy / ley.
+  const cmdLutY = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -channel R -fx '${lutShared}; ley=2*yy*(1.5*A-Bfac*(1+2*ct*A)); (r<=0)?0.5:(r>1)?(j/h):(0.5+ley/lez*${FOV_SCALE})' -separate +channel "${sphere_lutyFilename}"`;
+
+  // Smooth anti-aliased circular alpha mask (slightly softer blur for cleaner edge)
+  const cmdMask = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc:black -fill white -draw "circle ${center},${center} ${center},2" -blur 0x1.5 "${sphere_maskFilename}"`;
+
+  // Glass sphere lighting overlay (for HardLight composite).
+  // Output: greyscale [0,1] where 0.5=neutral, <0.5 darkens, >0.5 brightens.
+  //   fresnel = 0.5·(1 − r^5)  →  0.5 at centre, 0 at rim
+  //   spec    = (N·H)^80        →  tight white specular at half-vector position
+  //   combined = clamp(fresnel + spec, 0, 1)
+  const cmdOverlay = `convert -size ${SPHERE_SIZE}x${SPHERE_SIZE} xc: -fx 'nx=2*(i+0.5)/w-1; ny=2*(j+0.5)/h-1; r2=nx*nx+ny*ny; nz=sqrt(max(0,1-r2)); spec=pow(max(0,nx*(-0.144)+ny*(-0.192)+nz*0.971),80); fresnel=0.5*(1-pow(r2,2.5)); (r2<=1)?min(1,fresnel+spec):(0)' "${sphere_overlayFilename}"`;
 
   await execAsync(`${cmdLutX} && ${cmdLutY} && ${cmdMask} && ${cmdOverlay}`);
 }
