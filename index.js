@@ -86,69 +86,8 @@ async function ensureSphereMaps() {
     return;
   }
 
-  const center = SPHERE_SIZE / 2;
-
-  // FOV scale: how much of the source image maps into the marble disc.
-  // 0.45 → full image visible within r≈0.80 of the marble; outer rim fades dark.
-  const S = SPHERE_SIZE;
-
-  // ImageMagick 6 (Debian Bookworm) does NOT support semicolon variable assignments
-  // in -fx.  All expressions must be single fully-inlined compound expressions.
-  //
-  // Variables (inlined everywhere they appear):
-  //   xx  = (i+0.5)/w-0.5          (pixel x, normalised to [-0.5, 0.5])
-  //   yy  = (j+0.5)/h-0.5          (pixel y)
-  //   r2  = 4*(xx*xx+yy*yy)         (r², 0→1 across sphere disc)
-  //   pz  = sqrt(max(0,1-r2))       (surface normal z)
-  //   ct  = sqrt(max(0,1-r2/2.25))  (cos θ_refracted, n=1.5 → sin_t=r/1.5)
-  //   A   = 2*pz/3-ct               (pz/n − ct)
-  //   Bfac= 1.5*ct-pz               (n·ct − pz)
-  //   lez = exit-ray z-component (always < 0)
-  //   lex/ley = exit-ray x/y transverse components
-  //
-  // Because IM6 -fx is pixel-interpreted, every sub-expression is repeated inline.
-  // We factor into JavaScript template literals for readability.
-
-  const xx  = '((i+0.5)/w-0.5)';
-  const yy  = '((j+0.5)/h-0.5)';
-  const r2  = `(4*(${xx}*${xx}+${yy}*${yy}))`;
-  const r   = `sqrt(${r2})`;
-  const pz  = `sqrt(max(0,1-${r2}))`;
-  const ct  = `sqrt(max(0,1-${r2}/2.25))`;
-  const A   = `(2*${pz}/3-${ct})`;
-  const Bf  = `(1.5*${ct}-${pz})`;
-  // lez = (-r2 - 1.5*pz*ct) - Bfac*(pz - 2*ct*(r2/1.5 + pz*ct))
-  const lez = `((-${r2}-1.5*${pz}*${ct})-${Bf}*(${pz}-2*${ct}*(${r2}/1.5+${pz}*${ct})))`;
-  // lex = 2*xx * (1.5*A - Bfac*(1 + 2*ct*A))
-  const lex = `(2*${xx}*(1.5*${A}-${Bf}*(1+2*${ct}*${A})))`;
-  const ley = `(2*${yy}*(1.5*${A}-${Bf}*(1+2*${ct}*${A})))`;
-
-  // X-LUT: source x-coord in the pre-flipped image
-  const fxLutX = `(${r}<=0)?0.5:(${r}>1)?(i/w):(0.5+${lex}/${lez}*0.45)`;
-  // Y-LUT: source y-coord
-  const fxLutY = `(${r}<=0)?0.5:(${r}>1)?(j/h):(0.5+${ley}/${lez}*0.45)`;
-
-  const cmdLutX = `convert -size ${S}x${S} xc: -channel R -fx '${fxLutX}' -separate +channel "${sphere_lutxFilename}"`;
-  const cmdLutY = `convert -size ${S}x${S} xc: -channel R -fx '${fxLutY}' -separate +channel "${sphere_lutyFilename}"`;
-
-  // Smooth anti-aliased circular alpha mask
-  const cmdMask = `convert -size ${S}x${S} xc:black -fill white -draw "circle ${center},${center} ${center},2" -blur 0x1.5 "${sphere_maskFilename}"`;
-
-  // Glass sphere lighting overlay (HardLight composite: <0.5 darkens, >0.5 brightens).
-  //   Fresnel rim: 0.5*(1 - r^5)  → 0.5 at centre, 0 at rim
-  //   Specular:    (N·H)^80 with H ≈ (−0.144, −0.192, 0.971) → upper-left hot-spot
-  //   Combined:    clamp(fresnel + spec, 0, 1)
-  // All inlined (no variable assignments) for IM6 compatibility.
-  const nx   = '(2*(i+0.5)/w-1)';
-  const ny   = '(2*(j+0.5)/h-1)';
-  const r2ov = `(${nx}*${nx}+${ny}*${ny})`;
-  const nz   = `sqrt(max(0,1-${r2ov}))`;
-  const spec = `pow(max(0,${nx}*(-0.144)+${ny}*(-0.192)+${nz}*0.971),80)`;
-  const fres = `(0.5*(1-pow(${r2ov},2.5)))`;
-  const fxOv = `(${r2ov}<=1)?min(1,${fres}+${spec}):(0)`;
-  const cmdOverlay = `convert -size ${S}x${S} xc: -fx '${fxOv}' "${sphere_overlayFilename}"`;
-
-  await execAsync(`${cmdLutX} && ${cmdLutY} && ${cmdMask} && ${cmdOverlay}`);
+  const scriptPath = path.join(__dirname, 'gen_sphere_maps.py');
+  await execAsync(`python3 "${scriptPath}" "${os.tmpdir()}" ${SPHERE_SIZE}`);
 }
 
 /**
@@ -314,4 +253,6 @@ try {
 }
 
 exports.soratamafy = soratamafy;
-module.exports = { soratamafy };
+exports.processSoratamaImage = processSoratamaImage;
+exports.ensureSphereMaps = ensureSphereMaps;
+module.exports = { soratamafy, processSoratamaImage, ensureSphereMaps };
