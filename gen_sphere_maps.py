@@ -17,10 +17,10 @@ Physics: Authentic optical ray deflection through a solid glass sphere (n=1.5).
   transparent glass marble remains crystal clear and unobscured.
 
 Outputs (all SPHERE_SIZE × SPHERE_SIZE, 16-bit grey PNG):
-  sphere_lutx_v4.png   – X source coordinate (value in [0, 1])
-  sphere_luty_v4.png   – Y source coordinate (value in [0, 1])
-  sphere_mask_v4.png   – circular alpha mask (smooth anti-aliased edge)
-  sphere_overlay_v4.png – lighting overlay (neutral 128: crystal clear glass, no glare)
+  sphere_lutx_v5.png   – X source coordinate (value in [0, 1])
+  sphere_luty_v5.png   – Y source coordinate (value in [0, 1])
+  sphere_mask_v5.png   – circular alpha mask (smooth anti-aliased edge)
+  sphere_overlay_v5.png – lighting overlay (Fresnel rim darkening, no specular flare)
 
 Usage:  python3 gen_sphere_maps.py <output_dir> <sphere_size>
 """
@@ -66,24 +66,28 @@ def main():
         img = Image.fromarray((arr * 65535).astype(np.uint16))
         img.save(path)
 
-    save_lut(src_x, os.path.join(out_dir, 'sphere_lutx_v4.png'))
-    save_lut(src_y, os.path.join(out_dir, 'sphere_luty_v4.png'))
+    save_lut(src_x, os.path.join(out_dir, 'sphere_lutx_v5.png'))
+    save_lut(src_y, os.path.join(out_dir, 'sphere_luty_v5.png'))
 
     # ── Circular alpha mask ─────────────────────────────────────────────────
     # White disc with a smooth anti-aliased edge
     mask = np.where(r <= 1.0, 255.0, 0.0).astype(np.float32)
     mask_img = Image.fromarray(mask.astype(np.uint8), mode='L')
     mask_img = mask_img.filter(ImageFilter.GaussianBlur(radius=1.5))
-    mask_img.save(os.path.join(out_dir, 'sphere_mask_v4.png'))
+    mask_img.save(os.path.join(out_dir, 'sphere_mask_v5.png'))
 
     # ── Lighting overlay (for HardLight composite) ───────────────────────────
-    # Neutral 128 (0.5) composite ensures the transmitted image is completely
-    # crystal clear with NO specular flare blinding/obfuscating the center.
-    overlay = np.full((S, S), 128, dtype=np.uint8)
-    ov_img  = Image.fromarray(overlay, mode='L')
-    ov_img.save(os.path.join(out_dir, 'sphere_overlay_v4.png'))
+    # Fresnel rim darkening: 0.5 at center (neutral under HardLight, zero brightness change,
+    # subject 100% visible), dropping smoothly to 0.0 at the rim to provide realistic
+    # 3D glass spherical volume and depth. Specular flare is eliminated (spec = 0).
+    nx_ov = 2.0 * (np.arange(S) + 0.5) / S - 1.0
+    nxg, nyg = np.meshgrid(nx_ov, nx_ov)
+    r2ov = nxg**2 + nyg**2
+    fresnel = np.where(r2ov <= 1.0, 0.5 * (1.0 - np.power(r2ov, 2.5)), 0.0)
+    ov_img = Image.fromarray((fresnel * 255).astype(np.uint8), mode='L')
+    ov_img.save(os.path.join(out_dir, 'sphere_overlay_v5.png'))
 
-    print(f'Sphere maps (v4) written to {out_dir} (size={S}x{S})', flush=True)
+    print(f'Sphere maps (v5) written to {out_dir} (size={S}x{S})', flush=True)
 
 if __name__ == '__main__':
     main()
