@@ -117,8 +117,9 @@ async function processSoratamaImage(inputPath, outputPath) {
     const createBgCmd = `convert "${inputPath}" -resize ${BG_WIDTH}x${BG_HEIGHT}^ -gravity Center -crop ${BG_WIDTH}x${BG_HEIGHT}+0+0 +repage -channel RGBA -blur 0x32 "${blurredBgFileName}"`;
     await execAsync(createBgCmd);
 
-    // 3. Composite the marble onto the center of the blurred background
-    const compositeCmd = `convert "${blurredBgFileName}" "${marbleFileName}" -gravity Center -composite -format jpg -quality 92 "${outputPath}"`;
+    // 3. Composite the marble onto the center of the blurred background and rotate 180°
+    // so the blurry background is upside-down and the marble image is right-side-up
+    const compositeCmd = `convert "${blurredBgFileName}" "${marbleFileName}" -gravity Center -composite -rotate 180 -format jpg -quality 92 "${outputPath}"`;
     await execAsync(compositeCmd);
   } finally {
     fs.promises.unlink(marbleFileName).catch(() => {});
