@@ -20,11 +20,11 @@ $(function() {
             dataType: "html",
             success: function(data) {
                 var $img = $(data).attr('height', '600').attr('width', '800').attr('title', 'reality-marble');
-                $ajax_div.append($img);
+                $ajax_div.append($("<div>").addClass("box").append($img));
             },
             error: function(xhr, status, error) {
                 var msg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.responseText || error || "Upload failed";
-                $ajax_div.append($("<span>").css("color", "red").text("Error: " + msg));
+                $ajax_div.append($("<div>").addClass("notification is-danger").text("Error: " + msg));
             }
         }).done(function() {
             loading.remove();

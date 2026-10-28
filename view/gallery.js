@@ -3,6 +3,13 @@
 var uploadfiles = document.querySelector('input[name=upload]');
 uploadfiles.addEventListener('change', function () {
     var files = this.files;
+
+    // Show the chosen file name in the Bulma file picker, when one is present.
+    var fileName = document.querySelector('.file-name');
+    if (fileName) {
+        fileName.textContent = files.length ? files[0].name : 'No file chosen';
+    }
+
     for(var i=0; i<files.length; i++){
         previewImage(this.files[i]);
     }
